@@ -108,12 +108,20 @@ protocol Decodable {
 
 When either of these protocols are attached to a given type, the compiler synthesizes the protocol's requirements in the type its attached to. Not only that, but the compiler performs validation of the type to ensure that each of its stored members conform to the protocol which is required for being able to automatically synthesize the conformance. If the requirements can't be automatically synthesized, the requirements can be manually implemented on the type. Not only that but the protocol's requirements can be manually implemented even if the requirements could be synthesized by the compiler.
 
-This kind of functionality can already be somewhat emulated using the 'conformance' field on the `member` or `extension` attached macro type. For example, we could create an attached member macro that conforms the attached type to the `Encodable` protocol and synthesizes the requirements of the protocol:
+This kind of functionality can already be somewhat emulated using the 'conformance' field on the `member` or `extension` attached macro type. For example, we could create an attached member macro that conforms the attached type to a given protocol and synthesizes the requirements of the protocol:
 
 ```swift
 // Declaration
-@attached(member, conformances: Encodable, named: named(encode(to:)))
-macro EncodableMacro() = #externalMacro(...)
+protocol FooBar {
+    associatedtype Foo
+    associatedtype Bar
+
+    func foo() -> Foo
+    func bar() -> Bar
+}
+
+@attached(member, conformances: FooBar, named: named(foo()), named(bar()))
+macro FooBarMacro() = #externalMacro(...)
 
 ...
 
@@ -126,40 +134,150 @@ struct EncodableMacro: ExtensionMacro {
         conformingTo protocols: [TypeSyntax],
         in context: some MacroExpansionContext
     ) throws -> [ExtensionDeclSyntax] {
-            
+        return [
+            ExtensionDeclSyntax(
+                ...
+                inheritanceClause:
+                    InheritanceClauseSyntax(inheritedTypes: 
+                        InheritedTypeListSyntax(protocols.map {
+                            InheritedTypeSyntax(type: $0)
+                        })
+                    ),
+                ...
+            )
+        ]
     }
 }
 ```
 
-This kind of functionality would be incredibly useful for 
+Although this works fine, it does lack some of the functionality that makes these kinds of protocols what they are today. Specifically, if one directly conforms to a given protocol (e.g. `FooBar`) then the protocol's requirements aren't automatically synthesized like they would have been had the macro been used intstead:
 
-While this attached macro type would certainly be useful for more complex protocols with multiple required members where we wanted to synthesize each of the members, creating a macro for each of the protocol's members would become quite cumbersome and polute the global namespace with a number of different single-use macros. It we were to instead create a single attached macro that we would attach to each of the different declarations we want to synthesize, the implementation of the macro could become exceeding complex to account for all of the different members that it's supposed to generate, assuming that we could even structure a macro in this way.
+```swift
+struct FooBarImplA: FooBar {
+    // error: Missing implementations for `foo()` and `bar()`
+}
 
-Describe the problems that this proposal seeks to address. If the
-problem is that some common pattern is currently hard to express, show
-how one can currently get a similar effect and describe its
-drawbacks. If it's completely new functionality that cannot be
-emulated, motivate why this new functionality would help Swift
-developers create better Swift code.
+@FooBarMacro
+struct FooBarImplB {
+
+}
+
+// Conformance to `FooBar` + requirements synthesized in an extension of `FooBarImplB`:
+//
+// extension FooBarImplB: FooBar {
+//     func foo() -> Self.Foo {
+//         ...
+//     }
+//     func bar() -> Self.Bar {
+//         ...
+//     }
+// }
+```
+
+Furthermore, this workaround doesn't allow for the associated protocol to be composed into other protocols or types like the way that `Encodable` and `Decodable` are composed in the `Codable` typealias:
+
+```swift
+typealias HashableFooBar = (FooBar & Hashable)
+// OR: `protocol HashableFooBar: FooBar, Hashable { }`
+
+struct FooBarImpl: HashableFooBar {
+    func hash(into hasher: inout Hasher) {
+        ...
+    }
+
+    // error: Missing implementations for `foo()` and `bar()`
+}
+```
+
+Because of these drawbacks we are proposing a new protocol attached macro type that mirrors the behavior of these kind of special protocols where the macro is invoked by conforming a type to the protocol.
 
 ## Proposed solution
 
-Describe your solution to the problem. Provide examples and describe
-how they work. Show how your solution is better than current
-workarounds: is it cleaner, safer, or more efficient?
+The proposed solution is to create a new attached macro type `conformance` whose usage is restricted to protocol declarations:
 
-This section doesn't have to be comprehensive.  Focus on the most
-important parts of the proposal and make arguments about why the
-proposal is better than the status quo.
+```swift
+@attached(conformance, ...)
+protocol FooBar {
+    ...
+}
+```
+
+The implementation of the macro would then be invoked whenever the protocol is formally adopted on a conrete type, that is to say adopted by a class, struct, enum, or actor. When added to the inheritance clause of another protocol, the macro wouldn't be invoked. However, any conformance to the new protocol on a conrete would invoke the macro for that conrete type. For example:
+
+```swift
+@attached(conformance, ...)
+protocol Foo {
+    associatedtype Foo
+    func foo() -> Foo
+}
+
+// `Foo`'s macro isn't invoked here
+protocol FooBar: Foo {
+    associatedtype Bar
+    func bar() -> Bar
+}
+
+// `Foo`'s macro is invoked here and synthesizes the `foo()` requirement.
+struct FooBarImpl: FooBar {
+    func bar() -> Self.Bar {
+        ...
+    }
+}
+```
 
 ## Detailed design
 
-Describe the design of the solution in detail. If it involves new
-syntax in the language, show the additions and changes to the Swift
-grammar. If it's a new API, show the full API and its documentation
-comments detailing what it does. The detail in this section should be
-sufficient for someone who is *not* one of the authors to be able to
-reasonably implement the feature.
+The new `conformance` attached macro type would accept two different parameters in the attribute's usage:
+
+1) `additionalMembers`
+
+If provided, this field will accept a list of named parameters that specify any additional declarations that the macro will create. All of the declarations in the associated protocol are implicitly included and therefore it's not necessary to include them in this field. For example, if the `Encodable` protocol were declared as this kind of macro it would include an additional declaration for the `CodingKeys` enum that it creates:
+
+```swift
+@attached(conformance, additionalMembers: named(CodingKeys), macro: #externalMacro(...))
+protocol Encodable {
+
+    func encode(to encoder: Encoder) throws
+}
+```
+
+2) `macro`
+
+This field is required to be include in the attribute and is provided with the implementation specification of the macro:
+
+```swift
+@attached(conformance, macro: #externalMacro(...))
+protocol FooBar {
+    ...
+}
+```
+
+Next, a new macro protocol type would be created in the `SwiftSyntax` library for specifying the implementation of the macro:
+
+```swift
+public protocol ProtocolConformanceMacro: AttachedMacro {
+
+    static func expansion(
+        of protocol: ProtocolDeclSyntax,
+        attachedTo declaration: some DeclGroupSyntax,
+        in context: some MacroExpansionContext
+    ) throws -> [DeclSyntax]
+}
+```
+
+The parameters of the required expansion function are defined as follows:
+
+- `protocol`:
+
+In lieu of providing an `AttributeSyntax` like is done in all other attached macros, this function accepts the declaration of the protocol that this macro is being invoked.
+
+- `declaration`:
+
+The `declaration` field is provided with the concrete declaration type that the protocol is attached to. The AST this declaration would be equivalent to the declaration that would be provided to the invocation of a `member` or `extension` macro. That is to say that the full AST of the conforming type would be provided, not just the type of the declaration or a "skeleton" of the declaration.
+
+- `context`:
+
+The standard macro expansion context included in all other macro expansion functions.
 
 ## Source compatibility
 
@@ -295,6 +413,8 @@ addition to the proposal which avoided creating a serious usability
 problem for many adopters of `@inlinable`.
 
 ## Alternatives considered
+
+While this attached macro type would certainly be useful for more complex protocols with multiple required members where we wanted to synthesize each of the members, creating a macro for each of the protocol's members would become quite cumbersome and polute the global namespace with a number of different single-use macros. It we were to instead create a single attached macro that we would attach to each of the different declarations we want to synthesize, the implementation of the macro could become exceeding complex to account for all of the different members that it's supposed to generate, assuming that we could even structure a macro in this way.
 
 Describe alternative approaches to addressing the same problem.
 This is an important part of most proposal documents.  Reviewers
