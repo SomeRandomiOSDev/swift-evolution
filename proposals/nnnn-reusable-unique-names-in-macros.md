@@ -68,7 +68,7 @@ As outlined above, these mangled unique names are specific to the role of the ma
 @attached(accessor)
 macro AssociatedObject() = #externalMacro(...)
 
-// Macro usage
+// Macro usage (located in module "MyModule")
 class MyClass {
     @AssociatedObject
     var foobar: AnyObject?
@@ -82,6 +82,21 @@ class MyClass {
     var foobar: AnyObject? {
         get { objc_getAssociatedObject(self, Self.<uniqueName>) }
         set { objc_getAssociatedObject(self, Self.<uniqueName>, newValue, .OBJC_ASSOCIATION_POLICY) }
+    }
+}
+```
+
+The implementation of this macro will conform to the `PeerMacro` and the `AccessMacro` protocols to fulfil the two macro roles that are declared on the macro. The implementation of the `PeerMacro` is responsible for creating the declaration of the static variable for the associated object key. In doing this it needs to create a unique identifier. The identifier might look something like the following:
+
+```swift
+extension AssociatedObjectMacro: PeerMacro {
+    static func expansion(
+        of node: AttributeSyntax,
+        providingPeersOf declaration: some DeclSyntaxProtocol,
+        in context: some MacroExpansionContext
+    ) throws -> [DeclSyntax] {
+        let uniqueVariableName = context.makeUniqueName("associatedObjectKey")
+        // uniqueVariableName == "$s8MyModule7MyClass6foobarfMp_19associatedObjectKeyfMu_"
     }
 }
 ```
