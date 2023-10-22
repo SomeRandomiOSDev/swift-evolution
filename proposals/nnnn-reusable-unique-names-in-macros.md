@@ -14,12 +14,18 @@ This document outlines a proposal for adding support for creating unique names i
 
 ## Motivation
 
-Describe the problems that this proposal seeks to address. If the
-problem is that some common pattern is currently hard to express, show
-how one can currently get a similar effect and describe its
-drawbacks. If it's completely new functionality that cannot be
-emulated, motivate why this new functionality would help Swift
-developers create better Swift code.
+Today the [MacroExpansionContext](https://github.com/apple/swift-syntax/blob/f8be751eaefe0d7c72c021f12024a8328a5f3568/Sources/SwiftSyntaxMacros/MacroExpansionContext.swift#L19C23-L19C23) protocol provides an API for generating unique names that are unique to a given macro expansion: [makeUniqueName(_:)](https://github.com/apple/swift-syntax/blob/f8be751eaefe0d7c72c021f12024a8328a5f3568/Sources/SwiftSyntaxMacros/MacroExpansionContext.swift#L28C13-L28C13). 
+
+This function, as the name suggests, creates names (identifiers) that are unique to the macro's expansion for a given macro role. The unique names generated follow a specific pattern which is outlined for the `macro-expansion-operator` entity in the [Mangling](https://github.com/apple/swift/blob/main/docs/ABI/Mangling.rst#entities) document:
+
+```
+macro-expansion-operator ::= decl-name identifier 'fMa' // attached accessor macro
+macro-expansion-operator ::= decl-name identifier 'fMr' // attached member-attribute macro
+macro-expansion-operator ::= identifier 'fMf' // freestanding macro
+macro-expansion-operator ::= decl-name identifier 'fMm' // attached member macro
+macro-expansion-operator ::= decl-name identifier 'fMp' // attached peer macro
+macro-expansion-operator ::= decl-name identifier 'fMc' // attached conformance macro
+```
 
 ## Proposed solution
 
