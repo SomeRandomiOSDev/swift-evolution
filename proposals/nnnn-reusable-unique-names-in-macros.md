@@ -60,6 +60,32 @@ struct FooBarMacro: MemberMacro {
 }
 ```
 
+As outlined above, these mangled unique names are specific to the role of the macro being expanded. This is where we can run in issues for specific use cases. For example, let's say that we wanted to create a macro for synthesizing accessors on a variable for getting and setting its value as an associated object on the type. An example expansion of this macro might look like follows:
+
+```swift
+// Macro declaration
+@attached(peer, arbitrary)
+@attached(accessor)
+macro AssociatedObject() = #externalMacro(...)
+
+// Macro usage
+class MyClass {
+    @AssociatedObject
+    var foobar: AnyObject?
+}
+
+// expands to:
+
+class MyClass {
+    private static let <uniqueName>: UnsafeRawPointer = ...
+
+    var foobar: AnyObject? {
+        get { objc_getAssociatedObject(self, Self.<uniqueName>) }
+        set { objc_getAssociatedObject(self, Self.<uniqueName>, newValue, .OBJC_ASSOCIATION_POLICY) }
+    }
+}
+```
+
 ## Proposed solution
 
 Describe your solution to the problem. Provide examples and describe
