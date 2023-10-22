@@ -146,6 +146,18 @@ class MyClass {
 
 ## Proposed solution
 
+To account for cases like the one described above, we need to extend the `makeUniqueName(_:)` function, or create a new one, that allows for the creation of "re-usable" unique identifiers that will guaranteed to be equivalent across different roles of the same macro invocation. The proposed solution is to add an optional flag to the `makeUniqueName(_:)` function that, if provided and set to `true`, will create a unique name that follows the same pattern as above but will be the same when invoked from other macro role implementations:
+
+```swift
+protocol MacroExpansionContext {
+
+    func makeUniqueName(_ name: String, reusable: Bool) -> TokenSyntax
+                                        ^~~~~~~~~~~~~~ // new parameter
+
+    ...
+}
+```
+
 Describe your solution to the problem. Provide examples and describe
 how they work. Show how your solution is better than current
 workarounds: is it cleaner, safer, or more efficient?
