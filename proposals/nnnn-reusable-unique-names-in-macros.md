@@ -101,6 +101,49 @@ extension AssociatedObjectMacro: PeerMacro {
 }
 ```
 
+Next in the implementation of the `AccessorMacro` we will create the accessors for getting and setting the variable's value. These accessors will need to reference the unique name of the variable we created in the implementation of the `PeerMacro`:
+
+```swift
+extension AssociatedObjectMacro: AccessorMacro {
+    static func expansion(
+        of node: AttributeSyntax,
+        providingAccessorsOf declaration: some DeclSyntaxProtocol,
+        in context: some MacroExpansionContext
+    ) throws -> [AccessorDeclSyntax] {
+        let uniqueVariableName = context.makeUniqueName("associatedObjectKey")
+        // uniqueVariableName == "$s8MyModule7MyClass6foobarfMa_19associatedObjectKeyfMu_"
+    }
+}
+```
+
+Carefully inspecting the variable names, however, we see that they are actually different given that the prefixes used for each of the roles differ by a single letter:
+
+```swift
+// AccessorMacro
+$s8MyModule7MyClass6foobarfMa_19associatedObjectKeyfMu_
+                          ^~~~
+
+// Peer macro
+$s8MyModule7MyClass6foobarfMp_19associatedObjectKeyfMu_
+                          ^~~~
+```
+
+Becuase of this minute discrepancy the generated accessors will attempt to access a variable that doesn't exist in the expansion:
+
+```swift
+class MyClass {
+    private static let $s8MyModule7MyClass6foobarfMp_19associatedObjectKeyfMu_: UnsafeRawPointer = ...
+
+    var foobar: AnyObject? {
+        get { objc_getAssociatedObject(self, Self.$s8MyModule7MyClass6foobarfMa_19associatedObjectKeyfMu_) }
+                                                  ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                                                  // error: Type 'MyClass' has no member named '$s8MyModule7MyClass6foobarfMa_19associatedObjectKeyfMu_'
+        set { objc_getAssociatedObject(self, Self.$s8MyModule7MyClass6foobarfMa_19associatedObjectKeyfMu_, newValue, .OBJC_ASSOCIATION_POLICY) }
+                                                  ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                                                  // error: Type 'MyClass' has no member named '$s8MyModule7MyClass6foobarfMa_19associatedObjectKeyfMu_'
+}
+```
+
 ## Proposed solution
 
 Describe your solution to the problem. Provide examples and describe
