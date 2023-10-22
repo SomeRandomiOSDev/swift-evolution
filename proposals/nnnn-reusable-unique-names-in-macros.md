@@ -27,6 +27,39 @@ macro-expansion-operator ::= decl-name identifier 'fMp' // attached peer macro
 macro-expansion-operator ::= decl-name identifier 'fMc' // attached conformance macro
 ```
 
+For example, for the given macro some unique names that it generates might look at follows:
+
+```swift
+// Declaration
+@attached(member, names: arbitrary)
+macro FooBarMacro(...) = #externalMacro(...)
+
+// In module "MyModule":
+@FooBarMacro
+struct FooBar {
+    ...
+}
+
+// Implementation of `FooBarMacro`:
+struct FooBarMacro: MemberMacro {
+    static func expansion(
+        of node: AttributeSyntax,
+        providingMembersOf declaration: some DeclGroupSyntax,
+        conformingTo protocols: [TypeSyntax],
+        in context: some MacroExpansionContext
+    ) throws -> [DeclSyntax] {
+        let uniqueName1 = context.makeUniqueName("foobar")
+        // uniqueName1 == "$s8MyModule6FooBarfMm_6foobarfMu_"
+
+        let uniqueName2 = context.makeUniqueName("foobar")
+        // uniqueName2 == "$s8MyModule6FooBarfMm_6foobarfMu0_"
+
+        let uniqueName3 = context.makeUniqueName("baz")
+        // uniqueName3 == "$s8MyModule6FooBarfMm_3bazfMu_"
+    }
+}
+```
+
 ## Proposed solution
 
 Describe your solution to the problem. Provide examples and describe
