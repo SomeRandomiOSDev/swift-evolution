@@ -172,6 +172,93 @@ macro-expansion-operator ::= decl-name identifier 'fMr' // reusable uniquely-nam
 
 The compiler should also be updated in the relevant reas to account for this new mangling identifier.
 
+Next the SwiftSyntax library would be updated to add in support for this additional parameter on the `makeUniqueName(_:)` function. The logic for this method wouldn't change very much from how its currently implemented today:
+
+```swift
+// Lines prefixed with '-' are part of the current implementation being changed.
+// Lines prefixed with '+' are part of the new implementation.
+// Lines without a '-' or '+' prefix are part of the current implementation that are *not* being modified.
+
+func makeUniqueName(_ providedName: String, reusable: Bool = false) -> TokenSyntax {
+    // If provided with an empty name, substitute in something.
+    let name = providedName.isEmpty ? "__local" : providedName
+
+    // Grab a unique index value for this name.
+-   let uniqueIndex = uniqueNames[name, default: 0]
+-   uniqueNames[name] = uniqueIndex + 1
++   let uniqueIndex: Int
++   if reusable {
++       uniqueIndex = reusableUniqueNames[name, default: 0]
++       reusableUniqueNames[name] = uniqueIndex + 1
++   } else {
++       uniqueIndex = uniqueNames[name, default: 0]
++       uniqueNames[name] = uniqueIndex + 1
++   }
+
+    // Start with the expansion discriminator.
+-   var resultString = expansionDiscriminator
++   var resultString: String
++   if reusable {
++       resultString = reusableExpansionDiscriminator
++   } else {
++       resultString = expansionDiscriminator
++   }
+
+    // Mangle the name
+    resultString += "\(name.count)\(name)"
+
+    // Mangle the operator for unique macro names.
+    resultString += "fMu"
+
+    // Mangle the index.
+    if uniqueIndex > 0 {
+      resultString += "\(uniqueIndex - 1)"
+    }
+    resultString += "_"
+
+    return TokenSyntax(.identifier(resultString), presence: .present)
+}
+```
+
+Each macro expansion context will keep track of two separate sets of unique names, one for reusable names, and one for unique names as they exist today. With this implementation in place our running example of a macro for associated object accessors would generate the same unique identifier for both macro roles:
+
+```swift
+extension AssociatedObjectMacro: PeerMacro {
+    static func expansion(
+        of node: AttributeSyntax,
+        providingPeersOf declaration: some DeclSyntaxProtocol,
+        in context: some MacroExpansionContext
+    ) throws -> [DeclSyntax] {
+        let uniqueVariableName = context.makeUniqueName("associatedObjectKey")
+        // uniqueVariableName == "$s8MyModule7MyClass6foobarfMA_19associatedObjectKeyfMu_"
+    }
+}
+
+extension AssociatedObjectMacro: AccessorMacro {
+    static func expansion(
+        of node: AttributeSyntax,
+        providingAccessorsOf declaration: some DeclSyntaxProtocol,
+        in context: some MacroExpansionContext
+    ) throws -> [AccessorDeclSyntax] {
+        let uniqueVariableName = context.makeUniqueName("associatedObjectKey")
+        // uniqueVariableName == "$s8MyModule7MyClass6foobarfMA_19associatedObjectKeyfMu_"
+    }
+}
+```
+
+With the final expansion of the macro being as follows:
+
+```swift
+class MyClass {
+    private static let $s8MyModule7MyClass6foobarfMA_19associatedObjectKeyfMu_: UnsafeRawPointer = ...
+
+    var foobar: AnyObject? {
+        get { objc_getAssociatedObject(self, Self.$s8MyModule7MyClass6foobarfMA_19associatedObjectKeyfMu_) }
+        set { objc_getAssociatedObject(self, Self.$s8MyModule7MyClass6foobarfMA_19associatedObjectKeyfMu_, newValue, .OBJC_ASSOCIATION_POLICY) }
+    }
+}
+```
+
 ## Source compatibility
 
 Describe the impact of this proposal on source compatibility.  As a
