@@ -158,22 +158,19 @@ protocol MacroExpansionContext {
 }
 ```
 
-Describe your solution to the problem. Provide examples and describe
-how they work. Show how your solution is better than current
-workarounds: is it cleaner, safer, or more efficient?
-
-This section doesn't have to be comprehensive.  Focus on the most
-important parts of the proposal and make arguments about why the
-proposal is better than the status quo.
-
 ## Detailed design
 
-Describe the design of the solution in detail. If it involves new
-syntax in the language, show the additions and changes to the Swift
-grammar. If it's a new API, show the full API and its documentation
-comments detailing what it does. The detail in this section should be
-sufficient for someone who is *not* one of the authors to be able to
-reasonably implement the feature.
+Firstly, the mangling specification would need to be updated to provide a new accepted identifier for this use case:
+
+```
+macro-expansion-operator ::= decl-name identifier 'fMA' // any attached macro
+
+or:
+
+macro-expansion-operator ::= decl-name identifier 'fMr' // reusable uniquely-named entity
+```
+
+The compiler should also be updated in the relevant reas to account for this new mangling identifier.
 
 ## Source compatibility
 
