@@ -1,4 +1,4 @@
-# "Re-usable" unique names in Macros.
+# "Reusable" unique names in Macros.
 
 * Proposal: [SE-NNNN](nnnn-reusable-unique-names-in-macros.md)
 * Authors: [Joe Newton](https://github.com/SomeRandomiOSDev)
@@ -10,7 +10,7 @@
 
 ## Introduction
 
-This document outlines a proposal for adding support for creating unique names in macro expansions that can be re-used across invocations of different roles for the same macro invocation.
+This document outlines a proposal for adding support for creating unique names in macro expansions that can be reused across invocations of different roles for the same macro invocation.
 
 ## Motivation
 
@@ -146,7 +146,7 @@ class MyClass {
 
 ## Proposed solution
 
-To account for cases like the one described above, we need to extend the `makeUniqueName(_:)` function, or create a new one, that allows for the creation of "re-usable" unique identifiers that will guaranteed to be equivalent across different roles of the same macro invocation. The proposed solution is to add an optional flag to the `makeUniqueName(_:)` function that, if provided and set to `true`, will create a unique name that follows the same pattern as above but will be the same when invoked from other macro role implementations:
+To account for cases like the one described above, we need to extend the `makeUniqueName(_:)` function, or create a new one, that allows for the creation of "reusable" unique identifiers that will guaranteed to be equivalent across different roles of the same macro invocation. The proposed solution is to add an optional flag to the `makeUniqueName(_:)` function that, if provided and set to `true`, will create a unique name that follows the same pattern as above but will be the same when invoked from other macro role implementations:
 
 ```swift
 protocol MacroExpansionContext {
@@ -170,7 +170,7 @@ or:
 macro-expansion-operator ::= decl-name identifier 'fMr' // reusable uniquely-named entity
 ```
 
-The compiler should also be updated in the relevant reas to account for this new mangling identifier.
+The compiler should also be updated in the relevant areas to account for this new mangling specification/identifer.
 
 Next the SwiftSyntax library would be updated to add in support for this additional parameter on the `makeUniqueName(_:)` function. The logic for this method wouldn't change very much from how its currently implemented today:
 
@@ -258,6 +258,69 @@ class MyClass {
     }
 }
 ```
+
+As a side note, this only applies for different *role* invocations of the same macro, if the same macro is used more than once on a given declaration, the reusable names generated for each macro invocation would be distinct. For example, if we have the following macro that's used more than once on the same declaration, the generated names would be as follows:
+
+```swift
+// Declaration
+@attached(member)
+macro FooBarMacro() = #externalMacro(...)
+
+// Usage (in module "MyModule")
+@FooBarMacro @FooBarMacro @FooBarMacro
+struct FooBar {
+    ...
+}
+
+// Implementation
+struct FooBarMacroImpl: MemberMacro {
+    static func expansion(
+        of node: AttributeSyntax,
+        providingMembersOf declaration: some DeclGroupSyntax,
+        conformingTo protocols: [TypeSyntax],
+        in context: some MacroExpansionContext
+    ) throws -> [DeclSyntax] {
+        let uniqueName = context.makeUniqueName("foobar")
+        ...
+    }
+}
+
+// Three unique names would be generated, one for each of the macros attached to `FooBar`:
+// 
+// First `@FooBarMacro` attribute:
+// uniqueName == "$s8MyModule6FooBar11FooBarMacrofMm_6foobarfMu_"
+//                                               ^~~~
+// Second `@FooBarMacro` attribute:
+// uniqueName == "$s8MyModule6FooBar11FooBarMacrofMm0_6foobarfMu_"
+//                                               ^~~~~
+// Third `@FooBarMacro` attribute:
+// uniqueName == "$s8MyModule6FooBar11FooBarMacrofMm1_6foobarfMu_"
+//                                               ^~~~~
+```
+
+If a given macro with multiple roles makes reusable unique identifers, each *macro invocation* will be able to reuse the created identifiers across *role invocations* of that same macro instanace, however, the other reusable identifiers created for the other *macro invocations* would be unique to their role invocations. Continuing with out associated object macro example, if the macro were used twice on the same property, the final output would be as follows:
+
+```swift
+class MyClass {
+    private static let $s8MyModule7MyClass6foobarfMA_19associatedObjectKeyfMu_: UnsafeRawPointer = ...
+                                                 ^~~~ 
+    private static let $s8MyModule7MyClass6foobarfMA0_19associatedObjectKeyfMu_: UnsafeRawPointer = ...
+                                                 ^~~~~
+
+    var foobar: AnyObject? {
+        get { objc_getAssociatedObject(self, Self.$s8MyModule7MyClass6foobarfMA_19associatedObjectKeyfMu_) }
+                                                                            ^~~~
+        set { objc_getAssociatedObject(self, Self.$s8MyModule7MyClass6foobarfMA_19associatedObjectKeyfMu_, newValue, .OBJC_ASSOCIATION_POLICY) }
+                                                                            ^~~~
+        get { objc_getAssociatedObject(self, Self.$s8MyModule7MyClass6foobarfMA0_19associatedObjectKeyfMu_) }
+                                                                            ^~~~~
+        set { objc_getAssociatedObject(self, Self.$s8MyModule7MyClass6foobarfMA0_19associatedObjectKeyfMu_, newValue, .OBJC_ASSOCIATION_POLICY) }
+                                                                            ^~~~~
+    }
+}
+```
+
+Although this limits the reusability of the generated identifiers, this seems appropriate given a macro that would require or have different behavior being attached multiple times to the same declaration doesn't seem like a well-designed macro nor would be necessarily practical. This is an arbitrary decision that was made but isn't central to the propsal overall.
 
 ## Source compatibility
 
